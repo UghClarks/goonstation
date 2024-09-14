@@ -31,6 +31,7 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 	var/deconstruct_time = 1 SECOND
 	var/image/connect_image = null
 	var/image/damage_image = null
+	var/crossing_airlock = null
 	default_material = "glass"
 	mat_changename = TRUE
 	uses_default_material_appearance = TRUE
@@ -108,7 +109,42 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 		update_nearby_tiles(need_rebuild=1, selfnotify=1)
 		. = ..()
 
+	/*Exit()
+		var/turf/T
+		var/list/turf/turfs_to_check = list()
+
+		if (is_cardinal(src.dir)
+			turfs_to_check |= src.loc
+			turfs_to_check |= get_step(src, src.dir)
+			turfs_to_check |= get_step(src, (src.dir - 180))
+
+		else if (!is_cardinal(src.dir))
+			for (var/direction in (cardinal))
+				tiles to check |= (get_step(src, direction)
+
+		for(var/atom/A as anything in T.contents)
+		if (isobj(A))
+			var/obj/O = A
+			if(istype(O, /obj/machinery/door))
+			src.crossing_airlock = TRUE*/
+
+
 	Move()
+
+		. = ..()
+
+		set_density(0) //mbc : icky but useful for fluids
+		update_nearby_tiles(need_rebuild=0, selfnotify = 1) //only selfnotify when density is 0, because i dont want windows to displace fluids every single move() step. would be slow probably
+		set_density(1)
+
+
+
+		src.set_dir(src.ini_dir)
+		update_nearby_tiles(need_rebuild=0)
+
+		return
+
+	/*Move()
 		set_density(0) //mbc : icky but useful for fluids
 		update_nearby_tiles(need_rebuild=1, selfnotify = 1) //only selfnotify when density is 0, because i dont want windows to displace fluids every single move() step. would be slow probably
 		set_density(1)
@@ -118,7 +154,7 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 		src.set_dir(src.ini_dir)
 		update_nearby_tiles(need_rebuild=1)
 
-		return
+		return*/
 
 	set_dir(new_dir)
 		. = ..()
@@ -543,6 +579,9 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 			for (var/neigh_dir in cardinal)
 				if (issimulatedturf(get_step(src, neigh_dir)))
 					affected_simturfs += get_step(src, neigh_dir)
+
+		if (src.crossing_airlock == TRUE)
+			need_rebuild = 0
 
 		if(need_rebuild)
 			for(var/turf/simulated/T in affected_simturfs)
