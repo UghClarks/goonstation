@@ -31,7 +31,6 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 	var/deconstruct_time = 1 SECOND
 	var/image/connect_image = null
 	var/image/damage_image = null
-	var/crossing_airlock = null
 	default_material = "glass"
 	mat_changename = TRUE
 	uses_default_material_appearance = TRUE
@@ -130,31 +129,13 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 
 
 	Move()
-
 		. = ..()
-
-		set_density(0) //mbc : icky but useful for fluids
-		update_nearby_tiles(need_rebuild=0, selfnotify = 1) //only selfnotify when density is 0, because i dont want windows to displace fluids every single move() step. would be slow probably
-		set_density(1)
-
-
-
 		src.set_dir(src.ini_dir)
-		update_nearby_tiles(need_rebuild=0)
+
+		//density is set to 0 before calling selftilenotify, then reset to 1. See comment in update_air_properties below
+		update_nearby_tiles(need_rebuild=1, selfnotify = 1)
 
 		return
-
-	/*Move()
-		set_density(0) //mbc : icky but useful for fluids
-		update_nearby_tiles(need_rebuild=1, selfnotify = 1) //only selfnotify when density is 0, because i dont want windows to displace fluids every single move() step. would be slow probably
-		set_density(1)
-		. = ..()
-
-
-		src.set_dir(src.ini_dir)
-		update_nearby_tiles(need_rebuild=1)
-
-		return*/
 
 	set_dir(new_dir)
 		. = ..()
@@ -570,7 +551,35 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 	proc/update_nearby_tiles(need_rebuild, var/selfnotify = 0)
 		if(!air_master) return 0
 
-		var/list/turf/simulated/affected_simturfs = list()
+		/* This prevents bridging airgroups and fucking up atmos when crossing airlocks.
+		Thindows are (should be) completely fixed
+		Thickdows leave one ungrouped turf 2 turfs behind an airlock in the room we are leaving.
+		This cannot be helped (unless one of you wants to help me figure out to find out direction
+		of movement), but it is in a place where it won't allow assemble_group_turf to merge the groups.
+		Maybe if you believe hard enough one day this will be fixed at the atmos level.*/
+
+		var/crossing_airlock = FALSE
+		var/list/turf/turfs_to_check = list()
+
+		turfs_to_check += src.loc						//We gather the turfs to check for airlocks
+		if (is_cardinal(src.dir))
+			turfs_to_check += get_step(src, src.dir)
+			turfs_to_check += get_step(src, (turn(src.dir, 180)))
+		else if (!is_cardinal(src.dir))
+			for (var/direction in (cardinal))
+				turfs_to_check += (get_step(src, direction))
+
+		for (var/turf/T as anything in turfs_to_check)		//We never rebuild airgroups when an airlock is on these turfs
+			for (var/atom/A as anything in T.contents)		//to prevent airgroup rebuilding from merging groups and fucking things up
+				if (isobj(A))
+					var/obj/O = A
+					if (istype(O, /obj/machinery/door))
+						need_rebuild = FALSE
+						if (T.loc == src.loc)
+							crossing_airlock= TRUE
+
+
+		var/list/turf/simulated/affected_simturfs = list()   		//We gather the turfs to update/rebuild
 		if (issimulatedturf(src.loc))
 			affected_simturfs += src.loc
 		if (is_cardinal(src.dir) && issimulatedturf(get_step(src, src.dir)))
@@ -580,15 +589,17 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 				if (issimulatedturf(get_step(src, neigh_dir)))
 					affected_simturfs += get_step(src, neigh_dir)
 
-		if (src.crossing_airlock == TRUE)
-			need_rebuild = 0
+		if ((crossing_airlock == TRUE) && (!is_cardinal(src.dir)))		//When dragging a thickdow we ungroup the airlock turf
+			air_master.tiles_to_rebuild += src.loc						//to make sure we are not extending a group into the room
+			affected_simturfs -= src.loc
 
 		if(need_rebuild)
 			for(var/turf/simulated/T in affected_simturfs)
 				if(T.parent) //Rebuild/update nearby group geometry
 					air_master.groups_to_rebuild |= T.parent
 				else
-					air_master.tiles_to_update |= T
+					air_master.tiles_to_rebuild |= T
+
 		else
 			for(var/turf/simulated/T in affected_simturfs)
 				air_master.tiles_to_update |= T
@@ -607,10 +618,13 @@ ADMIN_INTERACT_PROCS(/obj/window, proc/smash)
 			if(istype(w))
 				w.tilenotify(src.loc)
 
+		//only selfnotify when density is 0, because i dont want windows to displace fluids every single move() step. would be slow probably
+
 		if (selfnotify && isturf(src.loc))
 			var/turf/T = src.loc
+			set_density(0) //mbc : icky but useful for fluids
 			T.selftilenotify() //for fluids
-
+			set_density(1)
 		return 1
 
 	proc/fix_window(var/obj/item/sheet/S)
